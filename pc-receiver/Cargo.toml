@@ -19,6 +19,10 @@ mdns-sd = "0.11.0"
 hostname = "0.4.0"
 chrono = "0.4.38"
 rfd = "0.14.1"
+zune-jpeg = "0.4"
+tray-icon = "0.14"
+tao = "0.25"
+local-ip-address = "0.6"
 
 [dependencies.windows]
 version = "0.58.0"
@@ -27,3 +31,6 @@ features = [
     "UI_Notifications",
     "Foundation",
 ]
+
+[profile.dev.package."*"]
+opt-level = 3

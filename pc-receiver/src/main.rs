@@ -18,25 +18,37 @@ use windows::{
 };
 use mdns_sd::{ServiceDaemon, ServiceInfo};
 use std::collections::HashMap;
+use zune_jpeg::JpegDecoder;
 
-#[tokio::main]
-async fn main() {
+mod tray;
+
+/// 应用程序入口点。
+fn main() {
     tracing_subscriber::fmt::init();
 
-    start_mdns_broadcast();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
-    let app = Router::new()
-        .route("/upload", post(upload))
-        .layer(DefaultBodyLimit::max(50 * 1024 * 1024));
+    rt.spawn(async {
+        start_mdns_broadcast();
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
-    tracing::info!("Server listening on {}", addr);
+        let app = Router::new()
+            .route("/upload", post(upload))
+            .layer(DefaultBodyLimit::max(50 * 1024 * 1024));
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+        let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+        tracing::info!("Server listening on {}", addr);
+
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    tray::run_event_loop();
 }
 
-/// 启动 mDNS 服务广播，使局域网设备能发现此 PC。
+/// 注册 `_photosync._tcp.local.` mDNS 服务，广播主机名与 IP 地址。
 fn start_mdns_broadcast() {
     let mdns = ServiceDaemon::new().expect("Failed to create mDNS daemon");
     
@@ -142,18 +154,17 @@ fn show_notification_with_actions(image_data: Vec<u8>, image_path: String) -> wi
     
     let xml_string = format!(r#"
         <toast duration="long" activationType='background'>
-            <visual>
-                <binding template='ToastGeneric'>
-                    <text>收到手机图片</text>
-                    <text>请选择操作（30秒后自动忽略）</text>
-                    {}
-                </binding>
-            </visual>
-            <actions>
-                <action content='保存到本地' arguments='save' />
-                <action content='复制到剪切板' arguments='copy' />
-                <action content='忽略' arguments='ignore' />
-            </actions>
+        <visual>
+            <binding template='ToastGeneric'>
+                <text>收到手机图片</text>
+                {}
+            </binding>
+        </visual>
+        <actions>
+            <action content='保存' arguments='save' />
+            <action content='复制' arguments='copy' />
+            <action content='忽略' arguments='ignore' />
+        </actions>
         </toast>
     "#, image_xml);
 
@@ -208,31 +219,72 @@ fn show_notification_with_actions(image_data: Vec<u8>, image_path: String) -> wi
 /// # Arguments
 /// * `data` - 图片二进制数据
 fn copy_to_clipboard(data: &[u8]) {
-    match image::load_from_memory(data) {
-        Ok(img) => {
-            let rgba = img.to_rgba8();
-            let width = rgba.width() as usize;
-            let height = rgba.height() as usize;
-            let bytes = rgba.into_raw();
-            
-            let image_data = arboard::ImageData {
-                width,
-                height,
-                bytes: std::borrow::Cow::Owned(bytes),
-            };
-            
-            match arboard::Clipboard::new() {
-                Ok(mut clipboard) => {
-                    if let Err(e) = clipboard.set_image(image_data) {
-                        tracing::error!("Failed to set clipboard image: {:?}", e);
-                    } else {
-                        tracing::info!("Image copied to clipboard successfully");
+    let data_vec = data.to_vec();
+    
+    std::thread::spawn(move || {
+        let mut decoder = JpegDecoder::new(&data_vec);
+        match decoder.decode() {
+            Ok(pixels) => {
+                if let Some(info) = decoder.info() {
+                    let width = info.width as usize;
+                    let height = info.height as usize;
+                    
+                    let mut rgba_pixels = Vec::with_capacity(width * height * 4);
+                    for chunk in pixels.chunks_exact(3) {
+                        rgba_pixels.extend_from_slice(chunk);
+                        rgba_pixels.push(255);
                     }
-                },
-                Err(e) => tracing::error!("Failed to initialize clipboard: {:?}", e),
+                    
+                    let image_data = arboard::ImageData {
+                        width,
+                        height,
+                        bytes: std::borrow::Cow::Owned(rgba_pixels),
+                    };
+                    
+                    write_to_clipboard(image_data, "zune-jpeg");
+                    return;
+                }
+            },
+            Err(e) => {
+                tracing::warn!("zune-jpeg decode failed (will fallback to image-rs): {:?}", e);
+            }
+        }
+
+        match image::load_from_memory(&data_vec) {
+            Ok(img) => {
+                let rgba = img.to_rgba8();
+                let width = rgba.width() as usize;
+                let height = rgba.height() as usize;
+                let bytes = rgba.into_raw();
+                
+                let image_data = arboard::ImageData {
+                    width,
+                    height,
+                    bytes: std::borrow::Cow::Owned(bytes),
+                };
+                
+                write_to_clipboard(image_data, "image-rs");
+            },
+            Err(e) => tracing::error!("Failed to decode image with both decoders: {:?}", e),
+        }
+    });
+}
+
+/// 将解码后的图片数据写入剪贴板。
+///
+/// # Arguments
+/// * `image_data` - 已解码的图片数据 (arboard::ImageData)
+/// * `decoder_name` - 使用的解码器名称 (用于日志记录)
+fn write_to_clipboard(image_data: arboard::ImageData, decoder_name: &str) {
+    match arboard::Clipboard::new() {
+        Ok(mut clipboard) => {
+            if let Err(e) = clipboard.set_image(image_data) {
+                tracing::error!("Failed to set clipboard image: {:?}", e);
+            } else {
+                tracing::info!("Image copied successfully using {} decoder", decoder_name);
             }
         },
-        Err(e) => tracing::error!("Failed to decode image: {:?}", e),
+        Err(e) => tracing::error!("Failed to initialize clipboard: {:?}", e),
     }
 }
 
