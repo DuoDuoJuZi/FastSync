@@ -3,6 +3,14 @@ name = "pc-receiver"
 version = "0.1.0"
 edition = "2021"
 
+[package.metadata.packager]
+product_name = "FastSync"
+identifier = "com.duoduojuzi.fastsync"
+version = "0.1.0"
+icons = ["icon.ico"]
+authors = ["DuoDuoJuZi"]
+description = "FastSync PC Receiver"
+
 [dependencies]
 axum = { version = "0.7.5", features = ["multipart"] }
 tokio = { version = "1.38.0", features = ["full"] }
@@ -25,6 +33,9 @@ tao = "0.25"
 local-ip-address = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+winreg = "0.52"
+mslnk = "0.1"
+dirs = "5.0"
 
 [dependencies.windows]
 version = "0.58.0"
@@ -36,3 +47,6 @@ features = [
 
 [profile.dev.package."*"]
 opt-level = 3
+
+[build-dependencies]
+embed-resource = "2.4"

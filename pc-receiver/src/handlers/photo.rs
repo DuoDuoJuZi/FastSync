@@ -88,7 +88,7 @@ fn show_notification_with_actions(image_data: Vec<u8>, image_path: String) -> wi
     let image_xml = format!(r#"<image placement='hero' src='file:///{}'/>"#, image_path.replace("\\", "/"));
     
     let xml_string = format!(r#"
-        <toast duration="long" activationType='background'>
+        <toast duration="long" activationType='foreground'>
         <visual>
             <binding template='ToastGeneric'>
                 <text>收到手机图片</text>
@@ -141,7 +141,7 @@ fn show_notification_with_actions(image_data: Vec<u8>, image_path: String) -> wi
         Ok(())
     }))?;
     
-    let notifier = ToastNotificationManager::CreateToastNotifierWithId(h!("FastSync.Receiver"))?;
+    let notifier = ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(crate::APP_ID))?;
     notifier.Show(&notification)?;
     
     Box::leak(Box::new(notification));

@@ -38,8 +38,7 @@ pub fn run_event_loop() {
     let quit_i = MenuItem::new("退出", true, None);
     tray_menu.append(&quit_i).unwrap();
 
-    let icon_path = std::path::Path::new("icon.ico");
-    let icon = load_icon(icon_path).expect("Failed to load icon.ico");
+    let icon = load_icon(include_bytes!("../icon.ico")).expect("Failed to load icon data");
 
     let mut tray_icon = Some(
         TrayIconBuilder::new()
@@ -86,18 +85,23 @@ pub fn run_event_loop() {
     });
 }
 
-/// 加载本地 icon.ico 文件。
+use anyhow::Context;
+
+/// 加载图标数据。
 ///
 /// # Arguments
-/// * `path` - 图标文件路径
-fn load_icon(path: &std::path::Path) -> Option<tray_icon::Icon> {
-    let (icon_rgba, icon_width, icon_height) = {
-        let image = image::open(path).ok()?.into_rgba8();
+/// * `bytes` - 图标文件二进制数据
+fn load_icon(bytes: &[u8]) -> anyhow::Result<tray_icon::Icon> {
+    let (icon_width, icon_height, icon_rgba) = {
+        let image = image::load_from_memory(bytes)
+            .context("Failed to decode icon bytes")?
+            .into_rgba8();
         let (width, height) = image.dimensions();
         let rgba = image.into_raw();
-        (rgba, width, height)
+        (width, height, rgba)
     };
-    tray_icon::Icon::from_rgba(icon_rgba, icon_width, icon_height).ok()
+    tray_icon::Icon::from_rgba(icon_rgba, icon_width, icon_height)
+        .context("Failed to create tray icon from RGBA data")
 }
 
 /// 获取局域网 IP 地址。
