@@ -22,6 +22,8 @@ use zune_jpeg::JpegDecoder;
 
 mod tray;
 
+use local_ip_address::local_ip;
+
 /// 应用程序入口点。
 fn main() {
     tracing_subscriber::fmt::init();
@@ -59,16 +61,27 @@ fn start_mdns_broadcast() {
         
     let service_type = "_photosync._tcp.local.";
     let instance_name = format!("{}_fastsync", hostname);
-    let ip = "0.0.0.0"; 
+    
+    let my_ip = match local_ip() {
+        Ok(ip) => ip,
+        Err(e) => {
+            tracing::error!("Failed to get local IP address: {:?}", e);
+            return;
+        }
+    };
+    
+    let ip_str = my_ip.to_string();
     let port = 3000;
     
+    tracing::info!("Starting mDNS broadcast on IP: {}", ip_str);
+
     let properties: HashMap<String, String> = HashMap::new();
 
     let my_service = ServiceInfo::new(
         service_type,
         &instance_name,
         &format!("{}.local.", instance_name),
-        ip,
+        &ip_str,
         port,
         Some(properties),
     ).expect("valid service info");
@@ -77,7 +90,7 @@ fn start_mdns_broadcast() {
     
     Box::leak(Box::new(mdns));
     
-    tracing::info!("mDNS service registered: {} ({})", instance_name, service_type);
+    tracing::info!("mDNS service registered: {} ({}) @ {}:{}", instance_name, service_type, ip_str, port);
 }
 
 /// 处理图片上传请求。

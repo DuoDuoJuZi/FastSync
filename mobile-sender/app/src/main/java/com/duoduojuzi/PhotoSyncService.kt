@@ -43,6 +43,9 @@ class PhotoSyncService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val TAG = "PhotoSyncService"
         private const val SERVICE_TYPE = "_photosync._tcp."
+        const val ACTION_UPDATE_SERVER_URL = "com.duoduojuzi.ACTION_UPDATE_SERVER_URL"
+        const val EXTRA_SERVER_IP = "EXTRA_SERVER_IP"
+        const val EXTRA_SERVER_PORT = "EXTRA_SERVER_PORT"
         var isRunning = false
     }
 
@@ -84,6 +87,16 @@ class PhotoSyncService : Service() {
      * @return 粘性启动模式 (START_STICKY)
      */
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_UPDATE_SERVER_URL) {
+            val ip = intent.getStringExtra(EXTRA_SERVER_IP)
+            val port = intent.getIntExtra(EXTRA_SERVER_PORT, 3000)
+            if (ip != null) {
+                serverUrl = "http://$ip:$port/upload"
+                Log.i(TAG, "Server URL manually updated: $serverUrl")
+            }
+            return START_STICKY
+        }
+
         val notification = createNotification()
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -425,6 +438,7 @@ class PhotoSyncService : Service() {
             .setContentTitle(getString(R.string.app_name))
             .setContentText(getString(R.string.service_running))
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
