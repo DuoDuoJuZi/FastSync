@@ -68,7 +68,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var nsdManager: NsdManager
     private var discoveryListener: NsdManager.DiscoveryListener? = null
     
-    // State for UI
     private val discoveredDevices = mutableStateListOf<DeviceInfo>()
     private var isServiceRunning by mutableStateOf(false)
     private var selectedDeviceIp by mutableStateOf<String?>(null)
@@ -87,12 +86,10 @@ class MainActivity : ComponentActivity() {
         
         initNsdManager()
         
-        // Restore selected device from prefs
         val prefs = getSharedPreferences("FastSyncPrefs", Context.MODE_PRIVATE)
         selectedDeviceIp = prefs.getString("target_ip", null)
         
-        // Check initial service status
-        isServiceRunning = PhotoSyncService.isRunning
+        isServiceRunning = FastSyncService.isRunning
 
         setContent {
             FastSyncTheme {
@@ -109,7 +106,6 @@ class MainActivity : ComponentActivity() {
             }
         }
         
-        // Auto start discovery
         startDiscovery()
     }
 
@@ -119,7 +115,7 @@ class MainActivity : ComponentActivity() {
      */
     override fun onResume() {
         super.onResume()
-        isServiceRunning = PhotoSyncService.isRunning
+        isServiceRunning = FastSyncService.isRunning
     }
 
     /**
@@ -263,10 +259,10 @@ class MainActivity : ComponentActivity() {
         
         Toast.makeText(this, "已选择：${device.name}", Toast.LENGTH_SHORT).show()
 
-        val intent = Intent(this, PhotoSyncService::class.java).apply {
-            action = PhotoSyncService.ACTION_UPDATE_SERVER_URL
-            putExtra(PhotoSyncService.EXTRA_SERVER_IP, device.ip)
-            putExtra(PhotoSyncService.EXTRA_SERVER_PORT, device.port)
+        val intent = Intent(this, FastSyncService::class.java).apply {
+            action = FastSyncService.ACTION_UPDATE_SERVER_URL
+            putExtra(FastSyncService.EXTRA_SERVER_IP, device.ip)
+            putExtra(FastSyncService.EXTRA_SERVER_PORT, device.port)
         }
         startService(intent)
     }
@@ -308,6 +304,10 @@ class MainActivity : ComponentActivity() {
         } else {
             permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
+        
+        // Add SMS permissions
+        permissions.add(Manifest.permission.READ_SMS)
+        permissions.add(Manifest.permission.RECEIVE_SMS)
 
         val missingPermissions = permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
@@ -349,7 +349,7 @@ class MainActivity : ComponentActivity() {
      * 适配 Android O 前台服务启动要求。
      */
     private fun startPhotoService() {
-        val intent = Intent(this, PhotoSyncService::class.java)
+        val intent = Intent(this, FastSyncService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {
@@ -363,15 +363,13 @@ class MainActivity : ComponentActivity() {
      * 停止 PhotoSyncService 服务。
      */
     private fun stopPhotoService() {
-        val intent = Intent(this, PhotoSyncService::class.java)
+        val intent = Intent(this, FastSyncService::class.java)
         stopService(intent)
         isServiceRunning = false
-        PhotoSyncService.isRunning = false // Force update static flag
+        FastSyncService.isRunning = false
         Toast.makeText(this, "服务已停止", Toast.LENGTH_SHORT).show()
     }
 }
-
-// --- Compose UI ---
 
 val PrimaryColor = Color(0xFFFFD809)
 val OnPrimaryColor = Color(0xFF000000)
