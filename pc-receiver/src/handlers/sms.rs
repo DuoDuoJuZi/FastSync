@@ -10,9 +10,11 @@ use serde::Deserialize;
 use windows::{
     core::*,
     Data::Xml::Dom::XmlDocument,
-    UI::Notifications::ToastNotificationManager,
+    UI::Notifications::{ToastNotification, ToastNotificationManager},
     Foundation::{DateTime, IReference, PropertyValue},
 };
+use crate::APP_ID;
+use crate::handlers::store_notification;
 
 /// 短信数据载荷结构体。
 #[derive(Debug, Deserialize)]
@@ -53,17 +55,17 @@ fn show_sms_notification(payload: &SmsPayload) -> windows::core::Result<()> {
     let content_escaped = payload.content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     
     let mut actions_xml = String::from(r#"
-            <action content='复制原文' arguments='copy_content' />
+            <action content='复制原文' arguments='copy_content'/>
     "#);
 
     if !payload.code.is_empty() {
          actions_xml.push_str(r#"
-            <action content='复制验证码' arguments='copy_code' />
+            <action content='复制验证码' arguments='copy_code'/>
          "#);
     }
     
     actions_xml.push_str(r#"
-            <action content='忽略' arguments='ignore' />
+            <action content='忽略' arguments='ignore'/>
     "#);
 
     let xml_string = format!(r#"
@@ -82,7 +84,7 @@ fn show_sms_notification(payload: &SmsPayload) -> windows::core::Result<()> {
 
     toast_xml.LoadXml(&HSTRING::from(xml_string))?;
 
-    let notification = windows::UI::Notifications::ToastNotification::CreateToastNotification(&toast_xml)?;
+    let notification = ToastNotification::CreateToastNotification(&toast_xml)?;
 
     notification.SetTag(&HSTRING::from("sms_sync"))?;
     notification.SetGroup(&HSTRING::from("FastSync"))?;
@@ -117,10 +119,11 @@ fn show_sms_notification(payload: &SmsPayload) -> windows::core::Result<()> {
         Ok(())
     }))?;
     
-    let notifier = ToastNotificationManager::CreateToastNotifierWithId(h!("FastSync.Receiver"))?;
+    let notifier = ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(APP_ID))?;
     notifier.Show(&notification)?;
     
-    Box::leak(Box::new(notification));
+    // 使用全局存储管理生命周期
+    store_notification("sms", notification);
     
     Ok(())
 }

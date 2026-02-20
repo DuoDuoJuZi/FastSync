@@ -17,6 +17,9 @@ import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import android.accessibilityservice.AccessibilityService
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import okhttp3.OkHttpClient
 
 /**
@@ -25,8 +28,9 @@ import okhttp3.OkHttpClient
  *
  * 后台服务核心类。
  * 负责管理服务生命周期、mDNS 发现、通知栏显示以及协调 SmsHandler 和 PhotoHandler。
+ * 继承 AccessibilityService 以获取后台剪贴板读取权限。
  */
-class FastSyncService : Service() {
+class FastSyncService : AccessibilityService() {
 
     companion object {
         private const val CHANNEL_ID = "fast_sync_channel"
@@ -44,10 +48,88 @@ class FastSyncService : Service() {
     
     private lateinit var photoHandler: PhotoHandler
     private lateinit var smsHandler: SmsHandler
+    private lateinit var clipboardHandler: ClipboardHandler
     
     private lateinit var nsdManager: NsdManager
     private var discoveryListener: NsdManager.DiscoveryListener? = null
     private var serverUrl: String? = null
+
+    /**
+     * 无障碍事件回调。
+     * 1. 监听系统剪贴板 UI (如 com.miui.contentextension) 并尝试直接抓取文本。
+     */
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null) return
+        
+        val packageName = event.packageName?.toString() ?: ""
+
+        if (packageName == "com.miui.contentextension") {
+            Log.d(TAG, "检测到小米传送门/剪贴板弹出，触发临时焦点夺取...")
+            if (::clipboardHandler.isInitialized) {
+                clipboardHandler.triggerMomentaryFocusRead()
+            }
+        }
+    }
+
+    /**
+     * 递归查找指定类名的节点。
+     */
+    private fun findNodeByClass(node: AccessibilityNodeInfo, className: String): AccessibilityNodeInfo? {
+        if (node.className == className) {
+            return node
+        }
+        
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null) {
+                val found = findNodeByClass(child, className)
+                if (found != null) {
+                    return found 
+                }
+                child.recycle()
+            }
+        }
+        return null
+    }
+
+    /**
+     * 递归查找最长文本节点 (排除功能性按钮)。
+     */
+    private fun findBestText(node: AccessibilityNodeInfo): String? {
+        var longestText: String? = null
+        
+        if (node.text != null && node.text.isNotEmpty()) {
+            val text = node.text.toString()
+            if (text.length > 1 && 
+                text != "搜索" && text != "分享" && text != "复制" && 
+                text != "确定" && text != "取消" && text != "编辑") {
+                   longestText = text
+            }
+        }
+        
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null) {
+                val childText = findBestText(child)
+                child.recycle()
+                
+                if (childText != null) {
+                    if (longestText == null || childText.length > longestText.length) {
+                        longestText = childText
+                    }
+                }
+            }
+        }
+        
+        return longestText
+    }
+
+    /**
+     * 无障碍服务中断回调。
+     */
+    override fun onInterrupt() {
+        Log.w(TAG, "Accessibility Service Interrupted")
+    }
 
     /**
      * 服务创建回调。
@@ -66,6 +148,9 @@ class FastSyncService : Service() {
         
         smsHandler = SmsHandler(this, serviceScope, okHttpClient) { serverUrl }
         smsHandler.init()
+
+        clipboardHandler = ClipboardHandler(this, serviceScope, okHttpClient) { serverUrl }
+        clipboardHandler.init()
         
         startServiceDiscovery()
     }
@@ -156,11 +241,6 @@ class FastSyncService : Service() {
     }
 
     /**
-     * 不支持绑定服务。
-     */
-    override fun onBind(intent: Intent?): IBinder? = null
-
-    /**
      * 服务销毁回调。
      * 释放所有资源，停止各模块工作。
      */
@@ -170,6 +250,7 @@ class FastSyncService : Service() {
         
         if (::photoHandler.isInitialized) photoHandler.destroy()
         if (::smsHandler.isInitialized) smsHandler.destroy()
+        if (::clipboardHandler.isInitialized) clipboardHandler.destroy()
         
         if (discoveryListener != null) {
             nsdManager.stopServiceDiscovery(discoveryListener)

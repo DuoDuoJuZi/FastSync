@@ -6,14 +6,15 @@ use axum::{
     extract::Multipart,
     http::StatusCode,
 };
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use windows::{
     core::*,
     Data::Xml::Dom::XmlDocument,
-    UI::Notifications::ToastNotificationManager,
+    UI::Notifications::{ToastNotification, ToastNotificationManager},
     Foundation::{DateTime, IReference, PropertyValue},
 };
 use zune_jpeg::JpegDecoder;
+use crate::handlers::store_notification;
 
 /// 处理图片上传请求。
 ///
@@ -39,7 +40,8 @@ pub async fn upload(mut multipart: Multipart) -> StatusCode {
         
         tokio::spawn(async move {
             if let Some(temp_file_path) = save_temp_image(&data) {
-                if let Err(e) = show_notification_with_actions(data, temp_file_path) {
+                // 不再传入 data，只传入路径
+                if let Err(e) = show_notification_with_actions(temp_file_path) {
                     tracing::error!("Failed to show notification: {:?}", e);
                 }
             }
@@ -77,12 +79,11 @@ fn save_temp_image(data: &[u8]) -> Option<String> {
 /// 显示带有交互按钮的 Windows Toast 通知。
 ///
 /// # Arguments
-/// * `image_data` - 图片原始数据（用于后续操作）
 /// * `image_path` - 本地预览图片路径
 ///
 /// # Returns
 /// 操作结果 Result
-fn show_notification_with_actions(image_data: Vec<u8>, image_path: String) -> windows::core::Result<()> {
+fn show_notification_with_actions(image_path: String) -> windows::core::Result<()> {
     let toast_xml = XmlDocument::new()?;
     
     let image_xml = format!(r#"<image placement='hero' src='file:///{}'/>"#, image_path.replace("\\", "/"));
@@ -105,7 +106,7 @@ fn show_notification_with_actions(image_data: Vec<u8>, image_path: String) -> wi
 
     toast_xml.LoadXml(&HSTRING::from(xml_string))?;
 
-    let notification = windows::UI::Notifications::ToastNotification::CreateToastNotification(&toast_xml)?;
+    let notification = ToastNotification::CreateToastNotification(&toast_xml)?;
 
     notification.SetTag(&HSTRING::from("CurrentPhoto"))?;
     notification.SetGroup(&HSTRING::from("FastSync"))?;
@@ -120,20 +121,35 @@ fn show_notification_with_actions(image_data: Vec<u8>, image_path: String) -> wi
     let expiry_reference: IReference<DateTime> = expiry_inspectable.cast()?;
     notification.SetExpirationTime(&expiry_reference)?;
 
-    let image_data = Arc::new(image_data);
-    let image_data_clone = image_data.clone();
+    // 使用 image_path 而非 image_data
+    let image_path_clone = image_path.clone();
     
     notification.Activated(&windows::Foundation::TypedEventHandler::new(move |_sender, args: &Option<IInspectable>| {
         if let Some(args) = args {
             let args: windows::UI::Notifications::ToastActivatedEventArgs = args.cast()?;
             let arguments = args.Arguments()?.to_string();
             
+            // 按需读取文件
+            let load_data = || -> Option<Vec<u8>> {
+                 match std::fs::read(&image_path_clone) {
+                    Ok(d) => Some(d),
+                    Err(e) => {
+                        tracing::error!("Failed to read image file {:?}: {:?}", image_path_clone, e);
+                        None
+                    }
+                 }
+            };
+
             if arguments == "save" {
                 tracing::info!("Save action clicked");
-                save_file_dialog(&image_data_clone);
+                if let Some(data) = load_data() {
+                    save_file_dialog(&data);
+                }
             } else if arguments == "copy" {
                 tracing::info!("Copy action clicked");
-                copy_to_clipboard(&image_data_clone);
+                if let Some(data) = load_data() {
+                    copy_to_clipboard(&data);
+                }
             } else if arguments == "ignore" {
                 tracing::info!("Ignore action clicked");
             }
@@ -144,7 +160,8 @@ fn show_notification_with_actions(image_data: Vec<u8>, image_path: String) -> wi
     let notifier = ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(crate::APP_ID))?;
     notifier.Show(&notification)?;
     
-    Box::leak(Box::new(notification));
+    // 使用全局存储管理生命周期
+    store_notification("photo", notification);
     
     Ok(())
 }

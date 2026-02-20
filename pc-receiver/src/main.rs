@@ -25,6 +25,7 @@ fn main() {
     tracing_subscriber::fmt::init();
 
     register_app_id();
+    clean_temp_files();
 
     std::panic::set_hook(Box::new(|info| {
         let msg = format!("程序发生致命错误:\n{}", info);
@@ -48,6 +49,7 @@ fn main() {
         let app = Router::new()
             .route("/upload", post(handlers::photo::upload))
             .route("/sms", post(handlers::sms::receive_sms))
+            .route("/clipboard", post(handlers::clipboard::receive_clipboard))
             .layer(DefaultBodyLimit::max(50 * 1024 * 1024));
 
         let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
@@ -141,5 +143,30 @@ fn register_app_id() {
             .output();
             
         tracing::info!("Shortcut created/updated at: {:?}", shortcut_path);
+    }
+}
+
+/// 启动时清理旧的临时图片文件。
+fn clean_temp_files() {
+    let temp_dir = std::env::temp_dir();
+    let mut count = 0;
+    
+    if let Ok(entries) = std::fs::read_dir(&temp_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                if file_name.starts_with("fastsync_") && file_name.ends_with(".png") {
+                    if let Err(e) = std::fs::remove_file(&path) {
+                        tracing::warn!("Failed to delete temp file {:?}: {:?}", path, e);
+                    } else {
+                        count += 1;
+                    }
+                }
+            }
+        }
+    }
+    
+    if count > 0 {
+        tracing::info!("Cleaned up {} old temp files", count);
     }
 }

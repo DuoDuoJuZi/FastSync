@@ -6,4 +6,5 @@
     <string name="status_label">当前状态: </string>
     <string name="notification_channel_name">Photo Sync Service</string>
     <string name="notification_channel_description">Shows persistent notification for photo sync service</string>
+    <string name="accessibility_description">用于在后台同步剪贴板内容到 PC 端</string>
 </resources>
