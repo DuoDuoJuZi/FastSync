@@ -40,15 +40,16 @@ class FastSyncService : AccessibilityService() {
         const val ACTION_UPDATE_SERVER_URL = "com.duoduojuzi.ACTION_UPDATE_SERVER_URL"
         const val EXTRA_SERVER_IP = "EXTRA_SERVER_IP"
         const val EXTRA_SERVER_PORT = "EXTRA_SERVER_PORT"
+        const val ACTION_UPDATE_SYNC_CONFIG = "com.duoduojuzi.ACTION_UPDATE_SYNC_CONFIG"
         var isRunning = false
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
     private val okHttpClient = OkHttpClient()
     
-    private lateinit var photoHandler: PhotoHandler
-    private lateinit var smsHandler: SmsHandler
-    private lateinit var clipboardHandler: ClipboardHandler
+    private var photoHandler: PhotoHandler? = null
+    private var smsHandler: SmsHandler? = null
+    private var clipboardHandler: ClipboardHandler? = null
     
     private lateinit var nsdManager: NsdManager
     private var discoveryListener: NsdManager.DiscoveryListener? = null
@@ -65,9 +66,7 @@ class FastSyncService : AccessibilityService() {
 
         if (packageName == "com.miui.contentextension") {
             Log.d(TAG, "检测到小米传送门/剪贴板弹出，触发临时焦点夺取...")
-            if (::clipboardHandler.isInitialized) {
-                clipboardHandler.triggerMomentaryFocusRead()
-            }
+            clipboardHandler?.triggerMomentaryFocusRead()
         }
     }
 
@@ -142,17 +141,46 @@ class FastSyncService : AccessibilityService() {
         Log.i(TAG, "Initialized with default serverUrl: $serverUrl")
         
         createNotificationChannel()
-        
-        photoHandler = PhotoHandler(contentResolver, serviceScope, okHttpClient) { serverUrl }
-        photoHandler.init()
-        
-        smsHandler = SmsHandler(this, serviceScope, okHttpClient) { serverUrl }
-        smsHandler.init()
-
-        clipboardHandler = ClipboardHandler(this, serviceScope, okHttpClient) { serverUrl }
-        clipboardHandler.init()
+        applySyncConfig()
         
         startServiceDiscovery()
+    }
+
+    private fun applySyncConfig() {
+        val prefs = getSharedPreferences("FastSyncPrefs", Context.MODE_PRIVATE)
+        val syncPhotos = prefs.getBoolean("sync_photos", true)
+        val syncClipboard = prefs.getBoolean("sync_clipboard", true)
+        val syncSms = prefs.getBoolean("sync_sms", false)
+
+        if (syncPhotos) {
+            if (photoHandler == null) {
+                photoHandler = PhotoHandler(contentResolver, serviceScope, okHttpClient) { serverUrl }
+                photoHandler?.init()
+            }
+        } else {
+            photoHandler?.destroy()
+            photoHandler = null
+        }
+
+        if (syncSms) {
+            if (smsHandler == null) {
+                smsHandler = SmsHandler(this, serviceScope, okHttpClient) { serverUrl }
+                smsHandler?.init()
+            }
+        } else {
+            smsHandler?.destroy()
+            smsHandler = null
+        }
+
+        if (syncClipboard) {
+            if (clipboardHandler == null) {
+                clipboardHandler = ClipboardHandler(this, serviceScope, okHttpClient) { serverUrl }
+                clipboardHandler?.init()
+            }
+        } else {
+            clipboardHandler?.destroy()
+            clipboardHandler = null
+        }
     }
 
     /**
@@ -167,6 +195,10 @@ class FastSyncService : AccessibilityService() {
                 serverUrl = "http://$ip:$port/upload"
                 Log.i(TAG, "Server URL manually updated: $serverUrl")
             }
+            return START_STICKY
+        } else if (intent?.action == ACTION_UPDATE_SYNC_CONFIG) {
+            applySyncConfig()
+            Log.i(TAG, "Sync config manually updated")
             return START_STICKY
         }
 
@@ -248,9 +280,9 @@ class FastSyncService : AccessibilityService() {
         super.onDestroy()
         isRunning = false
         
-        if (::photoHandler.isInitialized) photoHandler.destroy()
-        if (::smsHandler.isInitialized) smsHandler.destroy()
-        if (::clipboardHandler.isInitialized) clipboardHandler.destroy()
+        photoHandler?.destroy()
+        smsHandler?.destroy()
+        clipboardHandler?.destroy()
         
         if (discoveryListener != null) {
             nsdManager.stopServiceDiscovery(discoveryListener)

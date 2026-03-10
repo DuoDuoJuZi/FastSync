@@ -481,9 +481,22 @@ fun HomeTab(
     onStartService: () -> Unit,
     onStopService: () -> Unit
 ) {
-    var syncPhotos by remember { mutableStateOf(true) }
-    var syncClipboard by remember { mutableStateOf(true) }
-    var syncSms by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("FastSyncPrefs", Context.MODE_PRIVATE) }
+    
+    var syncPhotos by remember { mutableStateOf(prefs.getBoolean("sync_photos", true)) }
+    var syncClipboard by remember { mutableStateOf(prefs.getBoolean("sync_clipboard", true)) }
+    var syncSms by remember { mutableStateOf(prefs.getBoolean("sync_sms", false)) }
+
+    fun updatePref(key: String, value: Boolean) {
+        prefs.edit().putBoolean(key, value).apply()
+        val intent = Intent(context, FastSyncService::class.java).apply {
+            action = FastSyncService.ACTION_UPDATE_SYNC_CONFIG
+        }
+        if (isServiceRunning) {
+            context.startService(intent)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -510,15 +523,24 @@ fun HomeTab(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = syncPhotos, onCheckedChange = { syncPhotos = it })
+                    Checkbox(checked = syncPhotos, onCheckedChange = {
+                        syncPhotos = it
+                        updatePref("sync_photos", it)
+                    })
                     Text("图片", color = MaterialTheme.colorScheme.onBackground)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = syncClipboard, onCheckedChange = { syncClipboard = it })
+                    Checkbox(checked = syncClipboard, onCheckedChange = {
+                        syncClipboard = it
+                        updatePref("sync_clipboard", it)
+                    })
                     Text("剪切板", color = MaterialTheme.colorScheme.onBackground)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = syncSms, onCheckedChange = { syncSms = it })
+                    Checkbox(checked = syncSms, onCheckedChange = {
+                        syncSms = it
+                        updatePref("sync_sms", it)
+                    })
                     Text("短信", color = MaterialTheme.colorScheme.onBackground)
                 }
             }

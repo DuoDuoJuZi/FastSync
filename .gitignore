@@ -20,3 +20,5 @@ mobile-sender/.cxx/
 mobile-sender/*.apk
 mobile-sender/output.json
 mobile-sender/signing.properties
+mobile-sender/app/release/
+app/release/
