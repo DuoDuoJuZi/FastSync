@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -371,11 +372,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-val PrimaryColor = Color(0xFFFFD809)
-val OnPrimaryColor = Color(0xFF000000)
-val BackgroundLight = Color(0xFFF7F9FC)
-val BackgroundDark = Color(0xFF121212)
-val StopColor = Color(0xFFFF4B4B)
+val BackgroundLight = Color(0xFFFFF8E7)
+val BackgroundDark = Color(0xFF363430)
+val PrimaryColor = Color(0xFF007BFF) // Unified button color
+val OnPrimaryColor = Color(0xFFFFFFFF)
 
 @Composable
 fun FastSyncTheme(
@@ -387,7 +387,8 @@ fun FastSyncTheme(
             primary = PrimaryColor,
             onPrimary = OnPrimaryColor,
             background = BackgroundDark,
-            surface = Color(0xFF1E1E1E),
+            surface = BackgroundDark,
+            onBackground = Color.White,
             onSurface = Color.White
         )
     } else {
@@ -395,9 +396,20 @@ fun FastSyncTheme(
             primary = PrimaryColor,
             onPrimary = OnPrimaryColor,
             background = BackgroundLight,
-            surface = Color.White,
+            surface = BackgroundLight,
+            onBackground = Color.Black,
             onSurface = Color.Black
         )
+    }
+
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as android.app.Activity).window
+            window.statusBarColor = colorScheme.background.toArgb()
+            val wic = androidx.core.view.WindowCompat.getInsetsController(window, view)
+            wic.isAppearanceLightStatusBars = !darkTheme
+        }
     }
 
     MaterialTheme(
@@ -417,88 +429,244 @@ fun MainScreen(
     onManualAdd: (String, Int) -> Unit,
     onScan: () -> Unit
 ) {
-    var showDialog by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableStateOf(0) }
+    
+    // 预留的设备名称状态
+    var deviceName by remember { mutableStateOf(Build.MODEL) }
 
     Scaffold(
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showDialog = true },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
+        bottomBar = {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Add IP")
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.Wifi, contentDescription = "首页") },
+                    label = { Text("首页") },
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 }
+                )
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.Computer, contentDescription = "设备") },
+                    label = { Text("设备") },
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 }
+                )
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.Check, contentDescription = "设置") }, // Replace with Settings icon if available, using Check for now
+                    label = { Text("设置") },
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 }
+                )
             }
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
                 .padding(paddingValues)
         ) {
-            HeaderCard(isServiceRunning)
-            
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            when (selectedTab) {
+                0 -> HomeTab(isServiceRunning, onStartService, onStopService)
+                1 -> DevicesTab(discoveredDevices, selectedDeviceIp, onDeviceSelected, onManualAdd, onScan)
+                2 -> SettingsTab(deviceName, onNameChange = { deviceName = it })
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeTab(
+    isServiceRunning: Boolean,
+    onStartService: () -> Unit,
+    onStopService: () -> Unit
+) {
+    var syncPhotos by remember { mutableStateOf(true) }
+    var syncClipboard by remember { mutableStateOf(true) }
+    var syncSms by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        HeaderCard(isServiceRunning)
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "发现设备",
+                    text = "同步数据选择",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
-                
-                Row {
-                    TextButton(onClick = onScan) {
-                        Text("刷新")
-                    }
-                    if (isServiceRunning) {
-                        TextButton(onClick = onStopService) {
-                            Text("停止服务", color = StopColor)
-                        }
-                    } else {
-                        Button(
-                            onClick = onStartService,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            )
-                        ) {
-                            Text("启动服务")
-                        }
-                    }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = syncPhotos, onCheckedChange = { syncPhotos = it })
+                    Text("图片", color = MaterialTheme.colorScheme.onBackground)
                 }
-            }
-            
-            LazyColumn(
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(discoveredDevices) { device ->
-                    DeviceItem(
-                        device = device,
-                        isSelected = device.ip == selectedDeviceIp,
-                        onClick = { onDeviceSelected(device) }
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = syncClipboard, onCheckedChange = { syncClipboard = it })
+                    Text("剪切板", color = MaterialTheme.colorScheme.onBackground)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = syncSms, onCheckedChange = { syncSms = it })
+                    Text("短信", color = MaterialTheme.colorScheme.onBackground)
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Button(
+            onClick = if (isServiceRunning) onStopService else onStartService,
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ),
+            shape = RoundedCornerShape(25.dp)
+        ) {
+            Text(if (isServiceRunning) "暂停服务" else "开启服务", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
     }
-    
-    if (showDialog) {
+}
+
+@Composable
+fun DevicesTab(
+    discoveredDevices: List<DeviceInfo>,
+    selectedDeviceIp: String?,
+    onDeviceSelected: (DeviceInfo) -> Unit,
+    onManualAdd: (String, Int) -> Unit,
+    onScan: () -> Unit
+) {
+    var showManualDialog by remember { mutableStateOf(false) }
+    var showPinDialog by remember { mutableStateOf(false) }
+    var pendingDevice by remember { mutableStateOf<DeviceInfo?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "发现设备",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Row {
+                TextButton(onClick = onScan) { Text("刷新") }
+                TextButton(onClick = { showManualDialog = true }) { Text("手动添加") }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(discoveredDevices) { device ->
+                DeviceItem(
+                    device = device,
+                    isSelected = device.ip == selectedDeviceIp,
+                    onClick = { 
+                        // 点击设备时预留输入PIN码逻辑
+                        pendingDevice = device
+                        showPinDialog = true
+                    }
+                )
+            }
+        }
+    }
+
+    if (showManualDialog) {
         ManualIpDialog(
-            onDismiss = { showDialog = false },
+            onDismiss = { showManualDialog = false },
             onConfirm = { ip, port -> 
                 onManualAdd(ip, port)
-                showDialog = false           }
+                showManualDialog = false
+            }
         )
     }
+
+    if (showPinDialog && pendingDevice != null) {
+        PinDialog(
+            onDismiss = { showPinDialog = false },
+            onConfirm = { pin ->
+                // 预留校验逻辑，输入正确后才可同步
+                onDeviceSelected(pendingDevice!!)
+                showPinDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun SettingsTab(deviceName: String, onNameChange: (String) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "设置",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        OutlinedTextField(
+            value = deviceName,
+            onValueChange = onNameChange,
+            label = { Text("设备名称") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "默认使用当前手机名称",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+        )
+    }
+}
+
+@Composable
+fun PinDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var pin by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("输入设备 PIN 码") },
+        text = {
+            OutlinedTextField(
+                value = pin,
+                onValueChange = { if (it.length <= 4) pin = it },
+                label = { Text("4位数 PIN 码") },
+                singleLine = true
+            )
+        },
+        confirmButton = {
+            Button(onClick = { if (pin.length == 4) onConfirm(pin) }) { Text("确定") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
 }
 
 @Composable
@@ -506,7 +674,7 @@ fun HeaderCard(isServiceRunning: Boolean) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val scale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = if (isServiceRunning) 1.2f else 1f,
+        targetValue = if (isServiceRunning) 1.1f else 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(1000),
             repeatMode = RepeatMode.Reverse
@@ -519,9 +687,8 @@ fun HeaderCard(isServiceRunning: Boolean) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(200.dp)
-            .padding(16.dp),
-        shape = RoundedCornerShape(32.dp),
+            .height(160.dp),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -541,16 +708,16 @@ fun HeaderCard(isServiceRunning: Boolean) {
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = if (isServiceRunning) "已准备好传输" else "服务未启动",
-                    style = MaterialTheme.typography.headlineMedium,
+                    text = if (isServiceRunning) "服务运行中" else "服务未启动",
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimary
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "本机 IP: $localIp",
+                    text = "IP: $localIp",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                 )
             }
         }
@@ -560,53 +727,53 @@ fun HeaderCard(isServiceRunning: Boolean) {
 @Composable
 fun DeviceItem(device: DeviceInfo, isSelected: Boolean, onClick: () -> Unit) {
     val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
-    val backgroundColor = if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFF0F0F0)
 
-    AnimatedVisibility(
-        visible = true,
-        enter = fadeIn() + slideInVertically()
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, borderColor)
     ) {
-        Card(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = backgroundColor),
-            border = BorderStroke(2.dp, borderColor)
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .size(48.dp)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape),
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.Computer,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(40.dp)
+                    tint = MaterialTheme.colorScheme.primary
                 )
-                Spacer(modifier = Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = device.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "${device.ip}:${device.port}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                }
-                if (isSelected) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = "Selected",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = device.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    text = "${device.ip}:${device.port}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                )
+            }
+            if (isSelected) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Selected",
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
         }
     }
@@ -614,6 +781,7 @@ fun DeviceItem(device: DeviceInfo, isSelected: Boolean, onClick: () -> Unit) {
 
 @Composable
 fun ManualIpDialog(onDismiss: () -> Unit, onConfirm: (String, Int) -> Unit) {
+
     var ip by remember { mutableStateOf("") }
     var port by remember { mutableStateOf("3000") }
 
