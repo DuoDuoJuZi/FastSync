@@ -33,7 +33,7 @@ jobs:
         uses: r0adkll/sign-android-release@v1
         id: sign_app
         with:
-          releaseDirectory: mobile-sender/app/release
+          releaseDirectory: mobile-sender/app/build/outputs/apk/release
           signingKeyBase64: ${{ secrets.SIGNING_KEY }}
           alias: ${{ secrets.ALIAS }}
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
@@ -60,6 +60,12 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-packager
+
+      - name: Build and Package Rust App
+        working-directory: ./pc-receiver
+        run: |
+          cargo build --release
+          cargo packager --release
 
       - name: Build and Package Rust App
         working-directory: ./pc-receiver
